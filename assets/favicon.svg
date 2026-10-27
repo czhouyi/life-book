@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="生活之书">
+  <rect width="64" height="64" rx="14" fill="#17342a"/>
+  <path d="M18 14h24a4 4 0 0 1 4 4v32H22a4 4 0 0 1-4-4V14Z" fill="#f3eee3"/>
+  <path d="M22 14h4v36h-4a4 4 0 0 1-4-4V18a4 4 0 0 1 4-4Z" fill="#b45a3c"/>
+  <path d="M31 24c5-4 8 2 13-1M31 33c5-4 8 2 13-1M31 42c5-4 8 2 13-1" fill="none" stroke="#24483a" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="45" cy="20" r="3" fill="#cba86b"/>
+</svg>

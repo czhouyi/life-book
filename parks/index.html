@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#17342a">
+  <title>上海公园 · 生活之书</title>
+  <meta name="description" content="一张可以随身翻阅的上海公园地图：按名称与标签筛选，定位后按距离排序，点击标记查看公园历史、面积、开放时间与特色标签。">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="../assets/css/base.css">
+  <link rel="stylesheet" href="../assets/css/parks.css">
+</head>
+<body class="parks-page">
+  <a class="skip-link" href="#park-list">跳到公园列表</a>
+
+  <header class="parks-header">
+    <a class="back-link" href="../index.html" aria-label="返回生活之书书架">
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+        <path d="M16 10H4M9 5l-5 5 5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span>书架</span>
+    </a>
+
+    <div class="parks-title">
+      <p>LIFE BOOK · VOL. 01</p>
+      <h1>上海公园</h1>
+    </div>
+
+    <p class="header-note"><span class="live-dot" aria-hidden="true"></span> 城市绿地漫游指南</p>
+  </header>
+
+  <main class="parks-layout" id="main">
+    <aside class="sidebar" aria-label="筛选与公园名录">
+      <section class="controls" aria-label="筛选、排序与定位提示">
+        <div class="search-box">
+          <svg class="search-icon" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+            <circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <path d="m13 13 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          </svg>
+          <label class="sr-only" for="park-search">按名称、区域或关键词筛选公园</label>
+          <input id="park-search" type="search" placeholder="搜索公园、区域或关键词" autocomplete="off" spellcheck="false">
+          <button class="clear-search" id="clear-search" type="button" aria-label="清空搜索" hidden>
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path d="m4 4 10 10M14 4 4 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="filter-block">
+          <div class="filter-heading">
+            <span id="tag-filter-title">标签筛选</span>
+            <span class="filter-hint">可多选，与搜索组合</span>
+          </div>
+          <div class="tag-list" id="tag-list" role="group" aria-labelledby="tag-filter-title" title="可多选；使用鼠标滚轮、触控板或左右滑动查看更多标签">
+            <span class="tag-placeholder">正在整理标签…</span>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <label class="sort-select" for="sort-select">
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path d="M5 3v11M2.5 11.5 5 14l2.5-2.5M13 15V4M10.5 6.5 13 4l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="sr-only">排序方式</span>
+            <select id="sort-select">
+              <option value="name">按名称排序</option>
+              <option value="distance" disabled>按距离排序（需定位）</option>
+            </select>
+            <svg class="select-chevron" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+              <path d="m3 5 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </label>
+          <button class="reset-button" id="reset-filters" type="button" disabled>重置</button>
+        </div>
+
+        <p class="location-status" id="location-status" role="status" hidden></p>
+      </section>
+
+      <section class="list-panel" aria-labelledby="list-title">
+        <div class="list-heading">
+          <div>
+            <p class="list-overline">GREEN SPACES</p>
+            <h2 id="list-title">公园名录</h2>
+          </div>
+          <p class="result-summary" aria-live="polite">
+            <strong id="result-count">—</strong><span> / <span id="total-count">—</span> 处</span>
+          </p>
+        </div>
+
+        <div class="park-list" id="park-list" role="list" aria-busy="true" tabindex="-1">
+          <div class="skeleton-card" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="skeleton-card" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="skeleton-card" aria-hidden="true"><span></span><span></span><span></span></div>
+        </div>
+      </section>
+    </aside>
+
+    <section class="map-panel" aria-label="上海公园地图">
+      <div class="map-canvas" id="map"></div>
+
+      <button class="map-fit" id="show-all" type="button" title="在地图上显示当前筛选出的公园">
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+          <path d="M6.5 2.5h-4v4M11.5 2.5h4v4M15.5 11.5v4h-4M2.5 11.5v4h4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>全览</span>
+      </button>
+
+      <button class="locate-button" id="locate-button" type="button" aria-label="定位我的位置">
+        <svg width="21" height="21" viewBox="0 0 21 21" aria-hidden="true">
+          <circle cx="10.5" cy="10.5" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M10.5 1.5v3M10.5 16.5v3M1.5 10.5h3M16.5 10.5h3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        </svg>
+        <span>定位</span>
+      </button>
+
+      <div class="map-loading" id="map-loading" aria-hidden="true">
+        <span class="spinner"></span>
+        <span>正在展开地图</span>
+      </div>
+    </section>
+  </main>
+
+  <noscript>
+    <div class="noscript-note">公园地图和筛选功能需要 JavaScript，请开启后重新加载页面。</div>
+  </noscript>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <span class="toast-dot" aria-hidden="true"></span>
+    <span id="toast-message"></span>
+  </div>
+
+  <dialog class="detail-dialog" id="detail-dialog" aria-labelledby="detail-title">
+    <button class="detail-close" id="detail-close" type="button" aria-label="关闭公园详情">
+      <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+        <path d="m4.5 4.5 11 11M15.5 4.5l-11 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <div class="detail-card">
+      <div id="detail-content"></div>
+    </div>
+  </dialog>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="../assets/js/parks.js"></script>
+</body>
+</html>
