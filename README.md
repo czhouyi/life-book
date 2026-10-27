@@ -31,7 +31,7 @@ life-book/
 │   └── parks/
 │       ├── index.html          # 上海公园地图页
 │       └── data/
-│           └── parks.json      # 100 条公园数据
+│           └── parks.json      # 119 条公园数据
 ├── scripts/
 │   └── fetch-amap-coords.mjs   # 高德坐标拾取脚本
 └── README.md
@@ -79,6 +79,13 @@ AMAP_PICKER_COOKIE='你的Cookie' node scripts/fetch-amap-coords.mjs
 
 # 3. 确认候选名称、区域和坐标无误后写回
 AMAP_PICKER_COOKIE='你的Cookie' node scripts/fetch-amap-coords.mjs --write
+```
+
+只补录新增记录中经纬度为 `0` 或缺失的公园：
+
+```bash
+AMAP_PICKER_COOKIE='你的Cookie' node scripts/fetch-amap-coords.mjs --missing
+AMAP_PICKER_COOKIE='你的Cookie' node scripts/fetch-amap-coords.mjs --missing --write
 ```
 
 未登录时接口只返回 2 位小数，脚本会拒绝写入。Cookie 只从环境变量 `AMAP_PICKER_COOKIE` 或 `--cookie-file` 读取，不会写入仓库。可用 `--only=century-park` 只处理指定公园。

@@ -22,12 +22,16 @@
  *   # 只更新指定 id
  *   AMAP_PICKER_COOKIE='...' node scripts/fetch-amap-coords.mjs --write --only=century-park,daning-park
  *
+ *   # 只处理经纬度为 0 / 缺失的记录
+ *   AMAP_PICKER_COOKIE='...' node scripts/fetch-amap-coords.mjs --missing --write
+ *
  * 可选参数：
  *   --data=docs/parks/data/parks.json
  *   --cookie-file=/path/to/cookie.txt   从文件读取 Cookie（避免超长环境变量）
  *   --key=...                           覆盖默认的拾取器 key
  *   --delay=500                         每次请求间隔（毫秒）
  *   --only=id1,id2                      只处理指定公园
+ *   --missing                           只处理缺少有效经纬度的公园
  *   --verbose                           输出候选列表
  */
 import fs from "node:fs/promises";
@@ -60,6 +64,7 @@ function hasFlag(name) {
 
 const WRITE = hasFlag("--write");
 const VERBOSE = hasFlag("--verbose");
+const MISSING_ONLY = hasFlag("--missing");
 const DATA_FILE = path.resolve(
   process.cwd(),
   getArg("--data", path.join("docs", "parks", "data", "parks.json"))
@@ -75,12 +80,24 @@ const ONLY = new Set(
     .filter(Boolean)
 );
 
-let PICKER_COOKIE = process.env.AMAP_PICKER_COOKIE || "";
+let PICKER_COOKIE = String(process.env.AMAP_PICKER_COOKIE || "").trim();
 
 function sleep(ms) {
   return new Promise(function (resolve) {
     setTimeout(resolve, ms);
   });
+}
+
+function hasMissingCoordinates(park) {
+  const lat = Number(park.lat);
+  const lng = Number(park.lng);
+  return (
+    !park ||
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    lat === 0 ||
+    lng === 0
+  );
 }
 
 function normalizeName(value) {
@@ -307,14 +324,19 @@ async function main() {
     throw new Error("parks.json 必须是数组");
   }
 
-  const parks = ONLY.size
-    ? data.filter(function (park) {
-        return ONLY.has(park.id);
-      })
-    : data;
+  const parks = data.filter(function (park) {
+    if (ONLY.size && !ONLY.has(park.id)) return false;
+    if (MISSING_ONLY && !hasMissingCoordinates(park)) return false;
+    return true;
+  });
 
   if (!parks.length) {
-    throw new Error("没有匹配的公园记录");
+    console.log(
+      MISSING_ONLY
+        ? "没有缺少有效经纬度的公园，无需更新。"
+        : "没有匹配的公园记录。"
+    );
+    return;
   }
 
   if (!PICKER_COOKIE) {
@@ -325,7 +347,13 @@ async function main() {
 
   console.log("数据文件：" + DATA_FILE);
   console.log("模式：" + (WRITE ? "写入" : "预览（不修改文件）"));
-  console.log("待查询：" + parks.length + " 个公园\n");
+  console.log(
+    "待查询：" +
+      parks.length +
+      " 个公园" +
+      (MISSING_ONLY ? "（仅缺少经纬度的记录）" : "") +
+      "\n"
+  );
 
   const updates = [];
   const skipped = [];
