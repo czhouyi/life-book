@@ -36,6 +36,9 @@
     "历史名园",
     "综合公园",
     "社区公园",
+    "口袋公园",
+    "古典园林",
+    "湿地公园",
     "水域",
     "露营",
     "烧烤",
@@ -180,12 +183,13 @@
       pitchEnable: false,
       doubleClickZoom: true,
       scrollWheel: true,
-      keyboardEnable: true
+      keyboardEnable: true,
+      showLabel: true
     });
 
-    // 只展示底图与道路，减少无关 POI 干扰；后续可用 setFeatures 继续调整。
+    // 必须包含 point，否则高德不会绘制 POI 点位与地点名称（放大后也一直空白）。
     if (typeof map.setFeatures === "function") {
-      map.setFeatures(["bg", "road"]);
+      map.setFeatures(["bg", "road", "point"]);
     }
 
     // 临时调试句柄：?debug=1 时可在控制台检查地图尺寸和中心点。

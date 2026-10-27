@@ -100,19 +100,22 @@ function parseLocation(location) {
   const lng = Number(parts[0]);
   const lat = Number(parts[1]);
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
-  return { lng: lng, lat: lat };
+  return {
+    lng: lng,
+    lat: lat,
+    lngPrecision: decimalPlaces(parts[0]),
+    latPrecision: decimalPlaces(parts[1])
+  };
 }
 
 function decimalPlaces(value) {
-  const text = String(value);
+  const text = String(value).trim();
   return text.includes(".") ? text.split(".")[1].length : 0;
 }
 
 function hasPreciseLocation(location) {
-  return (
-    location &&
-    decimalPlaces(location.lng) >= 5 &&
-    decimalPlaces(location.lat) >= 5
+  return Boolean(
+    location && location.lngPrecision >= 5 && location.latPrecision >= 5
   );
 }
 
@@ -133,8 +136,9 @@ function haversineMeters(a, b) {
 }
 
 function scoreCandidate(poi, park) {
-  const parkName = normalizeName(park.name);
-  const parkCore = coreName(park.name);
+  const matchName = park.amapMatch || park.name;
+  const parkName = normalizeName(matchName);
+  const parkCore = coreName(matchName);
   const candidateName = normalizeName(poi.name);
   const candidateCore = coreName(poi.name);
 
@@ -157,6 +161,7 @@ function scoreCandidate(poi, park) {
 
   const type = String(poi.type || "");
   if (/公园|风景名胜|植物园|动物园/.test(type)) score += 5;
+  if (/民宿|酒店|公寓|停车场|售票|入口|大门|旁/.test(poi.name)) score -= 120;
 
   const location = parseLocation(poi.location);
   if (hasPreciseLocation(location)) score += 3;
@@ -177,7 +182,8 @@ function chooseBestPoi(pois, park) {
 }
 
 function buildKeyword(park) {
-  // 高德拾取器允许直接输入完整关键词。带上“上海”可减少其他城市的同名结果。
+  // 个别公园在高德的 POI 名称与项目展示名不同，可用 amapQuery 指定搜索词。
+  if (park.amapQuery) return String(park.amapQuery);
   const name = /^上海/.test(park.name) ? park.name : "上海" + park.name;
   return name;
 }
@@ -196,7 +202,7 @@ function buildRequestUrl(keyword) {
     csid: randomUUID().toUpperCase(),
     city: "310000",
     page: "1",
-    offset: "10",
+    offset: "20",
     extensions: "all",
     language: "zh_cn",
     type_: "KEYWORD",

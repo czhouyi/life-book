@@ -31,7 +31,9 @@ life-book/
 │   └── parks/
 │       ├── index.html          # 上海公园地图页
 │       └── data/
-│           └── parks.json      # 16 条公园数据
+│           └── parks.json      # 40 条公园数据
+├── scripts/
+│   └── fetch-amap-coords.mjs   # 高德坐标拾取脚本
 └── README.md
 ```
 
@@ -60,7 +62,7 @@ life-book/
 | `hours` | string | 开放时间 |
 | `tags` | string[] | 类型与特色标签 |
 
-可选字段：`englishName`、`district`、`address`、`highlight`。
+可选字段：`englishName`、`district`、`address`、`highlight`。个别公园在高德的 POI 名称与展示名不同时，可加 `amapQuery`（搜索词）和 `amapMatch`（匹配名称）供坐标脚本使用。
 
 > 坐标统一使用高德坐标拾取器获取的 **GCJ-02**，前端不再做 WGS-84 转换。新增公园时请从高德坐标拾取器复制经纬度，避免直接使用 OSM / GPS 的 WGS-84 坐标。
 
