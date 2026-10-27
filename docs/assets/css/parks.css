@@ -8,9 +8,9 @@
  *    列表占剩余空间独立滚动，地址栏收起/展开时不会把页面撑破。
  * 3. 所有按钮、筛选 chip、排序框、关闭按钮、marker 的触控区域均 ≥44×44px。
  * 4. 详情在小屏使用底部抽屉（position:fixed; inset:auto 0 0），不会被下方列表遮挡；
- *    Leaflet 弹窗开启 autoPan 并在小屏限制高度、允许内部滚动。
+ *    高德信息窗体使用 isCustom 卡片，并在小屏限制高度、允许内部滚动。
  * 5. 列表滚动使用原生 overflow-y + -webkit-overflow-scrolling，滚动容器内不放 fixed 元素。
- * 6. 手机保留 Leaflet 双指缩放；弹窗打开时暂时隐藏“缩放/全览/定位”角落浮层，
+ * 6. 手机保留高德地图双指缩放；信息窗体打开时暂时隐藏“缩放/全览/定位”角落浮层，
  *    避免小地图上浮层压住弹窗内容。
  */
 .parks-page {
@@ -722,6 +722,55 @@
   transform: translateY(-1px);
 }
 
+/* 自定义缩放控件：替代地图默认控件，保持 44×44 触控区域 */
+.map-zoom {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  z-index: 600;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  border: 1px solid rgba(36, 72, 58, 0.14);
+  border-radius: 10px;
+  background: rgba(251, 248, 241, 0.96);
+  box-shadow: 0 6px 18px rgba(34, 47, 38, 0.12);
+  backdrop-filter: blur(8px);
+}
+
+.map-zoom__button {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  border-bottom: 1px solid rgba(36, 72, 58, 0.1);
+  background: transparent;
+  color: var(--forest-deep);
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.map-zoom__button:last-child {
+  border-bottom: 0;
+}
+
+.map-zoom__button:hover {
+  background: #fffdf8;
+}
+
+/* 信息窗体打开时暂时隐藏角落浮层，避免遮住卡片；关闭后自动恢复 */
+.map-panel.has-popup .map-fit,
+.map-panel.has-popup .locate-button,
+.map-panel.has-popup .map-zoom {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .locate-button {
   position: absolute;
   right: 15px;
@@ -806,54 +855,21 @@
   to { transform: rotate(360deg); }
 }
 
-/* Leaflet 小屏触控优化：缩放按钮 44×44，关闭按钮 44×44 */
-.leaflet-container {
+/* 高德地图容器与默认版权信息 */
+.amap-container {
   background: #e5ebe1;
   color: var(--ink);
   font-family: var(--sans);
 }
 
-.leaflet-bar {
-  overflow: hidden;
-  border: 1px solid rgba(36, 72, 58, 0.14) !important;
-  border-radius: 10px !important;
-  box-shadow: 0 6px 18px rgba(34, 47, 38, 0.12) !important;
-}
-
-.leaflet-bar a,
-.leaflet-touch .leaflet-bar a {
-  display: grid;
-  width: 44px !important;
-  height: 44px !important;
-  place-items: center;
-  border-bottom-color: rgba(36, 72, 58, 0.1) !important;
-  background: rgba(251, 248, 241, 0.96);
-  color: var(--forest-deep) !important;
-  font-size: 21px !important;
-  line-height: 44px !important;
-}
-
-.leaflet-control-zoom a:hover,
-.leaflet-control-zoom a:focus {
-  background: #fffdf8 !important;
-}
-
-.leaflet-control-attribution {
-  padding: 2px 6px !important;
-  background: rgba(251, 248, 241, 0.82) !important;
-  color: #5f685f !important;
-  font-size: 8.5px !important;
-  line-height: 1.5 !important;
-}
-
-.leaflet-control-attribution a {
-  color: #4d6658 !important;
+.amap-logo,
+.amap-copyright {
+  opacity: 0.72;
 }
 
 /* 自定义 marker：容器固定 44×44，保证触控热区 */
-.leaflet-div-icon {
-  border: 0;
-  background: transparent;
+.amap-marker {
+  touch-action: manipulation;
 }
 
 .park-marker {
@@ -884,15 +900,8 @@
 }
 
 /* 用户位置蓝点：44×44 容器，支持拖动校正，视觉中心落在地理坐标上 */
-.user-location-icon {
-  border: 0;
-  background: transparent;
+.amap-marker:has(.user-location-wrap) {
   cursor: grab;
-  touch-action: none;
-}
-
-.user-location-icon:active {
-  cursor: grabbing;
 }
 
 .user-location-wrap {
@@ -900,17 +909,17 @@
   display: block;
   width: 44px;
   height: 44px;
+  cursor: grab;
+  touch-action: none;
 }
 
-.user-location-wrap,
+.user-location-wrap:active {
+  cursor: grabbing;
+}
+
 .user-location-pulse,
 .user-location-core {
   pointer-events: none;
-}
-
-.user-accuracy-circle {
-  pointer-events: none;
-  stroke-dasharray: 5 5;
 }
 
 .user-location-core {
@@ -945,7 +954,7 @@
   100% { opacity: 0; transform: translate(-50%, -50%) scale(1.35); }
 }
 
-/* Leaflet 加载失败时的地图兜底 */
+/* 高德地图加载失败时的地图兜底 */
 .map-fallback {
   display: flex;
   height: 100%;
@@ -976,56 +985,66 @@
   line-height: 1.7;
 }
 
-/* Leaflet 弹窗 */
-/* Leaflet 弹窗 */
-.leaflet-popup-content-wrapper {
-  overflow: hidden;
-  padding: 0;
+/* 高德信息窗体：isCustom=true，卡片样式完全由项目控制 */
+.amap-info-contentContainer {
+  pointer-events: auto;
+}
+
+.map-popup {
+  position: relative;
+  width: 276px;
+  max-width: calc(100vw - 32px);
+  padding: 17px 18px 16px;
+  border: 1px solid rgba(36, 72, 58, 0.1);
   border-radius: 14px;
   background: #fffdf8;
   box-shadow: 0 16px 38px rgba(22, 38, 29, 0.22);
   color: var(--ink);
-}
-
-.leaflet-popup-content {
-  width: 276px !important;
-  margin: 0;
   line-height: 1.5;
 }
 
-.leaflet-popup-tip {
-  background: #fffdf8;
-  box-shadow: none;
+.map-popup::after {
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-top: 7px solid #fffdf8;
+  border-right: 7px solid transparent;
+  border-left: 7px solid transparent;
+  content: "";
+  transform: translateX(-50%);
+  filter: drop-shadow(0 2px 1px rgba(22, 38, 29, 0.08));
 }
 
-.leaflet-popup-close-button {
-  top: 2px !important;
-  right: 2px !important;
-  display: grid !important;
-  width: 44px !important;
-  height: 44px !important;
-  place-items: center;
-  padding: 0 !important;
-  border-radius: 50%;
-  color: var(--ink-soft) !important;
-  font-size: 24px !important;
-  font-weight: 300 !important;
-  line-height: 40px !important;
+.map-popup__close {
+  position: absolute;
+  top: 2px;
+  right: 2px;
   z-index: 3;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
 }
 
-.leaflet-popup-close-button:hover {
+.map-popup__close:hover {
   background: rgba(36, 72, 58, 0.07);
-  color: var(--forest-deep) !important;
-}
-
-.map-popup {
-  padding: 17px 18px 16px;
+  color: var(--forest-deep);
 }
 
 .map-popup__eyebrow {
   margin: 0 0 4px;
-  padding-right: 34px;
+  padding-right: 44px;
   color: var(--rust);
   font-size: 8.5px;
   font-weight: 700;
@@ -1035,7 +1054,7 @@
 
 .map-popup h3 {
   margin: 0 0 5px;
-  padding-right: 32px;
+  padding-right: 44px;
   color: var(--forest-deep);
   font-family: var(--serif);
   font-size: 24px;
@@ -1596,31 +1615,24 @@
     font-size: 11px;
   }
 
+  .map-zoom {
+    top: 12px;
+    right: 12px;
+  }
+
   .locate-button {
     right: 12px;
     bottom: calc(32px + env(safe-area-inset-bottom));
   }
 
-  /* 弹窗打开时让出角落，避免“缩放/全览/定位”盖住弹窗标题与按钮 */
-  .map-panel.has-popup .map-fit,
-  .map-panel.has-popup .locate-button,
-  .map-panel.has-popup .leaflet-control-zoom {
-    visibility: hidden;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .leaflet-popup-content {
-    width: min(78vw, 278px) !important;
-    /* 给地图内边距和弹窗小尖角留空间，短屏上内部滚动，避免弹窗越过地图边界 */
+  .map-popup {
+    width: min(78vw, 278px);
     max-height: calc(46vh - 80px);
     max-height: calc(46dvh - 80px);
     overflow-y: auto;
     overscroll-behavior: contain;
-  }
-
-  .map-popup {
     padding: 15px 15px 14px;
+    scrollbar-width: thin;
   }
 
   .map-popup h3 {
@@ -1829,7 +1841,7 @@
     border-left: 1px solid var(--line);
   }
 
-  .leaflet-popup-content {
+  .map-popup {
     max-height: calc(100vh - 100px);
     max-height: calc(100dvh - 100px);
   }

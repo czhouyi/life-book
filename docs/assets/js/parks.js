@@ -1,16 +1,26 @@
 /**
- * 上海公园地图页
+ * 上海公园地图页（高德地图 JavaScript API 2.0）
  * ------------------------------------------------------------------
- * 手机适配关键处理：
- * 1. 初始化时检测 768px 断点，手机上默认 zoom 12（桌面为 11），让市中心标记更清楚。
- * 2. 列表随地图联动：点击列表项 → flyTo + 打开 marker 弹窗；点击 marker → 列表同步高亮并滚动到可见位置。
- * 3. 底部定位按钮始终位于地图右下角、拇指易触达区域；定位失败只影响距离排序，不阻断地图与列表。
- *    定位精度会在状态栏显示；低精度时绘制真实精度圈，蓝点可拖动校正。
- * 4. 详情使用原生 <dialog>：桌面居中，手机为底部抽屉，层级高于列表和 Leaflet 控件，弹窗不会被遮挡。
- * 5. 没有在滚动列表里放置 fixed 元素，列表使用原生滚动 + overscroll-behavior，触控滚动更顺滑。
+ * 坐标说明：
+ * - parks.json 目前的坐标按 WGS-84 处理；加载后使用本地 gcoord 转换为 GCJ-02，
+ *   再交给高德 Marker / Circle / 距离计算。
+ * - 如果确认数据本身已经是 GCJ-02，把 PARKS_ARE_WGS84 改为 false 即可走恒等映射。
+ * - AMap.Geolocation 返回的坐标已经是 GCJ-02，直接用于地图与距离计算，不再转换。
  *
- * 数据流：fetch parks.json → normalize → filter（搜索 + 标签）→ sort（名称 / Haversine 距离）→
- *        同步渲染列表与 Leaflet marker。新增公园只需在 JSON 中增加记录。
+ * 安全说明：
+ * - Key 与 securityJsCode 位于 parks/index.html，纯静态站无法隐藏前端密钥；
+ *   仅限个人非商业项目使用，并应在高德控制台配置安全域名与配额。
+ *
+ * 手机适配关键处理：
+ * 1. 初始化时检测 768px 断点，手机 zoom 12（桌面 11）。
+ * 2. 列表随地图联动：点击列表项 → setZoom/setCenter + 打开高德信息窗体；
+ *    点击 marker → 列表同步高亮并滚动到可见位置。
+ * 3. 定位按钮位于地图右下角；定位失败只影响距离排序，不阻断地图与列表。
+ * 4. 详情使用原生 <dialog>；高德信息窗体使用 isCustom 卡片。
+ * 5. 列表滚动使用原生 overflow-y + overscroll-behavior。
+ *
+ * 数据流：fetch parks.json → normalize（WGS-84→GCJ-02）→ filter → sort（名称 / Haversine 距离）
+ *        → 同步渲染列表与高德 Marker。
  */
 (function () {
   "use strict";
@@ -18,6 +28,8 @@
   var EARTH_RADIUS_KM = 6371;
   var MOBILE_QUERY = "(max-width: 768px)";
   var SEARCH_DEBOUNCE = 120;
+  // 原始 parks.json 假定为 WGS-84；如果数据实际为 GCJ-02，改成 false 使用恒等映射。
+  var PARKS_ARE_WGS84 = true;
   var FILTER_TAGS = [
     "动物园",
     "植物园",
@@ -49,10 +61,12 @@
 
   var dom = {};
   var map = null;
-  var markerLayer = null;
-  var userLayer = null;
+  var infoWindow = null;
   var userMarker = null;
   var userAccuracyCircle = null;
+  var geolocationInstance = null;
+  var visibleMarkerIds = new Set();
+  var mapReady = false;
   var resizeTimer = null;
   var searchTimer = null;
   var toastTimer = null;
@@ -95,6 +109,8 @@
     dom.locationStatus = byId("location-status");
     dom.locateButton = byId("locate-button");
     dom.showAll = byId("show-all");
+    dom.zoomIn = byId("zoom-in");
+    dom.zoomOut = byId("zoom-out");
     dom.toast = byId("toast");
     dom.toastMessage = byId("toast-message");
     dom.detailDialog = byId("detail-dialog");
@@ -117,6 +133,12 @@
     dom.resetFilters.addEventListener("click", resetFilters);
     dom.locateButton.addEventListener("click", locateUser);
     dom.showAll.addEventListener("click", fitAllVisibleParks);
+    dom.zoomIn.addEventListener("click", function () {
+      if (map) map.zoomIn();
+    });
+    dom.zoomOut.addEventListener("click", function () {
+      if (map) map.zoomOut();
+    });
     dom.parkList.addEventListener("click", handleParkListClick);
 
     dom.detailClose.addEventListener("click", closeDetail);
@@ -131,62 +153,73 @@
     window.addEventListener("resize", function () {
       window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(function () {
-        if (map) map.invalidateSize();
+        if (map && typeof map.resize === "function") map.resize();
       }, 150);
     });
   }
 
   /* ------------------------------------------------------------------
-   * 地图初始化
-   * - Leaflet 通过 CDN 引入；若 CDN 被拦截，页面仍保留列表与详情功能。
-   * - 手机默认缩放级别更大，方便看清密集的市中心 marker。
+   * 高德地图初始化
+   * - 高德 JS API 通过 parks/index.html 的 <script> 引入。
+   * - 坐标系顺序是 [经度, 纬度]；海拔/缩放等配置保持与之前一致。
    * ------------------------------------------------------------------ */
   function initMap() {
-    if (!window.L) {
+    if (!window.AMap) {
       showMapUnavailable();
-      showToast("地图资源加载失败，仍可浏览公园列表", "error", 5200);
+      showToast("高德地图 API 加载失败，仍可浏览公园列表", "error", 5200);
       return;
     }
 
     var isMobile = window.matchMedia(MOBILE_QUERY).matches;
 
-    map = window.L.map("map", {
-      center: [31.23, 121.47],
+    map = new window.AMap.Map("map", {
       zoom: isMobile ? 12 : 11,
-      zoomControl: false,
-      worldCopyJump: true,
-      preferCanvas: false
+      center: [121.47, 31.23],
+      viewMode: "2D",
+      resizeEnable: true,
+      dragEnable: true,
+      zoomEnable: true,
+      rotateEnable: false,
+      pitchEnable: false,
+      doubleClickZoom: true,
+      scrollWheel: true,
+      keyboardEnable: true
     });
 
-    window.L.control.zoom({ position: "topright" }).addTo(map);
-    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    // 只展示底图与道路，减少无关 POI 干扰；后续可用 setFeatures 继续调整。
+    if (typeof map.setFeatures === "function") {
+      map.setFeatures(["bg", "road"]);
+    }
 
-    markerLayer = window.L.layerGroup().addTo(map);
-    userLayer = window.L.layerGroup().addTo(map);
+    // 临时调试句柄：?debug=1 时可在控制台检查地图尺寸和中心点。
+    if (new URLSearchParams(window.location.search).get("debug") === "1") {
+      window.__parksMap = map;
+    }
 
-    // 移动端地址栏出现/隐藏后，容器尺寸可能变化，主动通知 Leaflet 重算。
-    window.setTimeout(function () {
-      if (map) map.invalidateSize();
-    }, 0);
+    infoWindow = new window.AMap.InfoWindow({
+      isCustom: true,
+      autoMove: true,
+      offset: new window.AMap.Pixel(0, -50)
+    });
 
-    map.on("popupopen", function () {
-      // 手机上弹窗打开时隐藏角落浮层，避免遮住弹窗标题和按钮。
+    infoWindow.on("open", function () {
       if (dom.mapPanel) dom.mapPanel.classList.add("has-popup");
-      // Leaflet 自身会处理 autoPan；这里只确保弹窗在窄屏上不被地图边缘裁切。
-      if (window.matchMedia(MOBILE_QUERY).matches) {
-        window.setTimeout(function () {
-          if (map) map.invalidateSize({ pan: false });
-        }, 50);
-      }
     });
 
-    map.on("popupclose", function () {
+    infoWindow.on("close", function () {
       if (dom.mapPanel) dom.mapPanel.classList.remove("has-popup");
     });
+
+    map.on("complete", function () {
+      mapReady = true;
+      hideMapLoading();
+      if (map && typeof map.resize === "function") map.resize();
+    });
+
+    // 移动端地址栏出现/隐藏后，容器尺寸可能变化，主动通知高德重算。
+    window.setTimeout(function () {
+      if (map && typeof map.resize === "function") map.resize();
+    }, 0);
   }
 
   function hideMapLoading() {
@@ -196,11 +229,13 @@
 
   function showMapUnavailable() {
     hideMapLoading();
+    if (dom.zoomIn) dom.zoomIn.disabled = true;
+    if (dom.zoomOut) dom.zoomOut.disabled = true;
     if (!dom.mapCanvas) return;
     dom.mapCanvas.innerHTML =
       '<div class="map-fallback">' +
       '<p>地图暂时无法显示</p>' +
-      '<span>请检查网络后刷新页面，公园列表与详情仍可正常使用。</span>' +
+      '<span>请检查网络或高德 Key 配置后刷新页面，公园列表与详情仍可正常使用。</span>' +
       "</div>";
   }
 
@@ -243,8 +278,14 @@
         renderTagFilters();
         setControlsDisabled(false);
         updateDistanceOption();
+        createParkMarkers();
         applyFilters({ resetScroll: true });
         hideMapLoading();
+
+        if (PARKS_ARE_WGS84 && !window.gcoord) {
+          showToast("坐标转换库加载失败，公园标记可能有偏移", "error", 6200);
+        }
+
         restoreDetailFromUrl();
         showToast("已收录 " + normalized.length + " 处上海绿地", "success", 2600);
       })
@@ -291,20 +332,58 @@
         )
       : [];
 
+    // parks.json 按 WGS-84 维护；高德地图与 AMap.Geolocation 使用 GCJ-02。
+    // 这里转换后，后续 Marker、Circle 与 Haversine 距离都使用 GCJ-02。
+    var converted = toGcj02(lng, lat);
+
     return {
       id: id,
       name: name,
       englishName: stringValue(raw.englishName),
       district: stringValue(raw.district),
       address: stringValue(raw.address),
-      lat: lat,
-      lng: lng,
+      // lat/lng 为地图使用的 GCJ-02；sourceLat/sourceLng 保留 JSON 原值，便于核对。
+      lat: converted.lat,
+      lng: converted.lng,
+      sourceLat: lat,
+      sourceLng: lng,
       area: stringValue(raw.area),
       hours: stringValue(raw.hours),
       history: stringValue(raw.history),
       highlight: stringValue(raw.highlight),
       tags: tags
     };
+  }
+
+  /**
+   * WGS-84 → GCJ-02。
+   *
+   * 假设：parks.json 的坐标是 GPS 常用的 WGS-84。
+   * 方法：使用本地引入的 gcoord（与高德官方 convertFrom 不同，不消耗接口配额）。
+   *
+   * 如果转换后整体向东北偏移约 300–600 米，说明 JSON 原始坐标可能已经是 GCJ-02，
+   * 此时把文件顶部的 PARKS_ARE_WGS84 改为 false（恒等映射），再核对标记。
+   */
+  function toGcj02(lng, lat) {
+    if (!PARKS_ARE_WGS84) return { lng: lng, lat: lat };
+
+    if (!window.gcoord || typeof window.gcoord.transform !== "function") {
+      console.warn("gcoord 未加载，暂以原始坐标显示；请检查 vendor/gcoord.js");
+      return { lng: lng, lat: lat };
+    }
+
+    var result = window.gcoord.transform(
+      [lng, lat],
+      window.gcoord.WGS84,
+      window.gcoord.GCJ02
+    );
+
+    if (!result || !Number.isFinite(Number(result[0])) || !Number.isFinite(Number(result[1]))) {
+      console.warn("坐标转换失败，暂以原始坐标显示：", lng, lat);
+      return { lng: lng, lat: lat };
+    }
+
+    return { lng: Number(result[0]), lat: Number(result[1]) };
   }
 
   function stringValue(value) {
@@ -515,7 +594,7 @@
       })
     ) {
       state.selectedId = null;
-      if (map) map.closePopup();
+      closeInfoWindow();
     }
 
     renderList(filtered, options);
@@ -684,86 +763,105 @@
   }
 
   /* ------------------------------------------------------------------
-   * Leaflet marker 与弹窗
+   * 高德 Marker 与信息窗体
    * ------------------------------------------------------------------ */
-  function renderMarkers(parks) {
-    if (!map || !markerLayer || !window.L) return;
+  function createParkMarkers() {
+    if (!map || !window.AMap) return;
 
-    window.clearTimeout(state.popupTimer);
-    map.closePopup();
-    markerLayer.clearLayers();
+    closeInfoWindow();
+    state.markers.forEach(function (marker) {
+      map.remove(marker);
+    });
     state.markers.clear();
+    visibleMarkerIds.clear();
 
-    var isCompactMap = window.matchMedia(MOBILE_QUERY).matches;
-
-    parks.forEach(function (park) {
-      var marker = window.L.marker([park.lat, park.lng], {
-        icon: createMarkerIcon(park.id === state.selectedId),
+    state.parks.forEach(function (park) {
+      var marker = new window.AMap.Marker({
+        position: [park.lng, park.lat],
+        content: buildMarkerContent(false),
+        offset: new window.AMap.Pixel(-22, -42),
         title: park.name,
-        alt: park.name,
-        riseOnHover: true,
-        keyboard: true,
-        zIndexOffset: park.id === state.selectedId ? 1000 : 0
-      });
-
-      marker.bindPopup(buildPopupHtml(park), {
-        maxWidth: 300,
-        minWidth: 248,
-        autoPan: true,
-        autoPanPadding: isCompactMap ? [16, 20] : [24, 32],
-        closeButton: true,
-        keepInView: true,
-        className: "park-popup-shell"
+        zIndex: 100,
+        extData: { parkId: park.id }
       });
 
       marker.on("click", function () {
         state.selectedId = park.id;
         updateMarkerHighlight();
         highlightSelectedCard(true);
+        openParkInfo(park, marker);
       });
 
-      marker.addTo(markerLayer);
-
-      var markerElement = marker.getElement();
-      if (markerElement) {
-        markerElement.setAttribute("role", "button");
-        markerElement.setAttribute("aria-label", park.name + "，打开地图简介");
-      }
-
       state.markers.set(park.id, marker);
+    });
+  }
+
+  /**
+   * 筛选时只增删需要显示的高德 Marker，不重建整个 marker 集合。
+   */
+  function renderMarkers(parks) {
+    if (!map || !window.AMap) return;
+
+    window.clearTimeout(state.popupTimer);
+    closeInfoWindow();
+
+    var visibleIds = new Set(
+      parks.map(function (park) {
+        return park.id;
+      })
+    );
+
+    state.markers.forEach(function (marker, id) {
+      var shouldShow = visibleIds.has(id);
+      var isVisible = visibleMarkerIds.has(id);
+
+      if (shouldShow && !isVisible) {
+        map.add(marker);
+        visibleMarkerIds.add(id);
+      } else if (!shouldShow && isVisible) {
+        map.remove(marker);
+        visibleMarkerIds.delete(id);
+      }
     });
 
     updateMarkerHighlight();
   }
 
-  function createMarkerIcon(active) {
+  function buildMarkerContent(active) {
     var className = "park-marker" + (active ? " is-active" : "");
-    return window.L.divIcon({
-      className: "park-marker-icon",
-      html:
-        '<div class="' +
-        className +
-        '">' +
-        '<svg viewBox="0 0 32 42" aria-hidden="true" focusable="false">' +
-        '<path d="M16 1C7.7 1 1 7.7 1 16c0 11 15 24.5 15 24.5S31 27 31 16C31 7.7 24.3 1 16 1Z" fill="currentColor" stroke="#f7f2e7" stroke-width="2"/>' +
-        '<circle cx="16" cy="16" r="4.6" fill="#f7f2e7"/>' +
-        "</svg>" +
-        "</div>",
-      iconSize: [44, 44],
-      iconAnchor: [22, 41],
-      popupAnchor: [0, -38]
-    });
+    return (
+      '<div class="' +
+      className +
+      '">' +
+      '<svg viewBox="0 0 32 42" aria-hidden="true" focusable="false">' +
+      '<path d="M16 1C7.7 1 1 7.7 1 16c0 11 15 24.5 15 24.5S31 27 31 16C31 7.7 24.3 1 16 1Z" fill="currentColor" stroke="#f7f2e7" stroke-width="2"/>' +
+      '<circle cx="16" cy="16" r="4.6" fill="#f7f2e7"/>' +
+      "</svg>" +
+      "</div>"
+    );
   }
 
   function updateMarkerHighlight() {
     state.markers.forEach(function (marker, id) {
-      var markerElement = marker.getElement();
-      var pin = markerElement ? markerElement.querySelector(".park-marker") : null;
-      if (pin) {
-        pin.classList.toggle("is-active", id === state.selectedId);
+      var isActive = id === state.selectedId;
+      marker.setContent(buildMarkerContent(isActive));
+      if (typeof marker.setzIndex === "function") {
+        marker.setzIndex(isActive ? 220 : 100);
       }
-      marker.setZIndexOffset(id === state.selectedId ? 1000 : 0);
     });
+  }
+
+  function openParkInfo(park, marker) {
+    if (!map || !infoWindow || !marker) return;
+
+    infoWindow.setContent(buildPopupHtml(park));
+    if (dom.mapPanel) dom.mapPanel.classList.add("has-popup");
+    infoWindow.open(map, marker.getPosition());
+  }
+
+  function closeInfoWindow() {
+    if (infoWindow) infoWindow.close();
+    if (dom.mapPanel) dom.mapPanel.classList.remove("has-popup");
   }
 
   function buildPopupHtml(park) {
@@ -777,6 +875,11 @@
 
     return (
       '<article class="map-popup">' +
+      '<button class="map-popup__close" type="button" data-close-info aria-label="关闭公园简介">' +
+      '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">' +
+      '<path d="m4 4 10 10M14 4 4 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+      "</svg>" +
+      "</button>" +
       '<p class="map-popup__eyebrow">' +
       escapeHtml((park.district || "上海") + " · " + (park.tags[0] || "城市绿地")) +
       "</p>" +
@@ -829,16 +932,13 @@
       return;
     }
 
-    map.closePopup();
-    var targetZoom = Math.max(map.getZoom(), 14);
-    var target = [park.lat, park.lng];
+    closeInfoWindow();
+    var marker = state.markers.get(park.id);
 
     if (options.fly !== false) {
-      if (prefersReducedMotion.matches) {
-        map.setView(target, targetZoom, { animate: false });
-      } else {
-        map.flyTo(target, targetZoom, { duration: 0.7, easeLinearity: 0.25 });
-      }
+      // 高德 API 坐标系顺序为 [经度, 纬度]；与需求一致，点击列表项缩放到 15 级。
+      map.setZoom(15);
+      map.setCenter([park.lng, park.lat]);
     }
 
     if (options.openDetail) {
@@ -849,10 +949,9 @@
     if (options.openPopup === false) return;
 
     window.clearTimeout(state.popupTimer);
-    var delay = options.fly === false ? 20 : prefersReducedMotion.matches ? 80 : 680;
+    var delay = options.fly === false ? 20 : prefersReducedMotion.matches ? 80 : 360;
     state.popupTimer = window.setTimeout(function () {
-      var marker = state.markers.get(park.id);
-      if (marker) marker.openPopup();
+      openParkInfo(park, marker);
     }, delay);
   }
 
@@ -886,24 +985,34 @@
       showToast("当前没有可显示的公园", "error");
       return;
     }
+    if (!map) {
+      showToast("地图暂不可用，无法全览", "error");
+      return;
+    }
     fitParksInView(visible);
   }
 
   function fitParksInView(parks) {
-    if (!map || !window.L || !parks.length) return;
+    if (!map || !window.AMap || !parks.length) return;
 
-    map.closePopup();
-    var bounds = window.L.latLngBounds(
-      parks.map(function (park) {
-        return [park.lat, park.lng];
+    closeInfoWindow();
+    var markers = parks
+      .map(function (park) {
+        return state.markers.get(park.id);
       })
-    );
+      .filter(Boolean);
 
-    map.fitBounds(bounds, {
-      padding: [46, 46],
-      maxZoom: parks.length === 1 ? 15 : 13,
-      animate: !prefersReducedMotion.matches
-    });
+    if (!markers.length) return;
+
+    if (markers.length === 1) {
+      map.setZoom(15);
+      map.setCenter([parks[0].lng, parks[0].lat]);
+      return;
+    }
+
+    if (typeof map.setFitView === "function") {
+      map.setFitView(markers, false, [60, 60, 60, 60], 13);
+    }
   }
 
   function findPark(parkId) {
@@ -916,36 +1025,85 @@
    * 定位与 Haversine 距离
    * ------------------------------------------------------------------ */
   function locateUser() {
-    if (!("geolocation" in navigator)) {
-      state.locationState = "error";
-      setLocationPending(false);
-      setLocationStatus(
-        "error",
-        "当前浏览器不支持定位。无法获取位置，距离排序不可用；地图与列表仍可正常使用。"
-      );
-      showToast("无法获取位置，距离排序不可用", "error", 4800);
-      dom.locateButton.disabled = true;
-      return;
-    }
-
     if (state.locationState === "pending") return;
 
     state.locationState = "pending";
     setLocationPending(true);
-    setLocationStatus("pending", "正在获取你的位置…");
+    setLocationStatus("pending", "正在通过高德定位…");
     dom.locateButton.disabled = true;
 
-    try {
-      // maximumAge 设为 0：强制尽量拿到新鲜坐标，避免复用过期的缓存位置。
-      // 用户如果仍觉得不准，可以拖动地图上的蓝点进行手动校正。
-      navigator.geolocation.getCurrentPosition(handleLocationSuccess, handleLocationError, {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0
+    ensureGeolocation()
+      .then(function (geo) {
+        try {
+          geo.getCurrentPosition();
+        } catch (error) {
+          handleLocationError(error, "geo");
+        }
+      })
+      .catch(function (error) {
+        handleLocationError(error, "plugin");
       });
-    } catch (error) {
-      handleLocationError(error);
-    }
+  }
+
+  /**
+   * 按需加载 AMap.Geolocation 插件。
+   * 插件返回的坐标已经是 GCJ-02，后续直接用于地图和距离计算，不再 convertFrom。
+   */
+  function ensureGeolocation() {
+    if (geolocationInstance) return Promise.resolve(geolocationInstance);
+    if (!window.AMap) return Promise.reject({ info: "AMAP_NOT_READY" });
+
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var timer = window.setTimeout(function () {
+        if (settled) return;
+        settled = true;
+        reject({ info: "PLUGIN_TIMEOUT" });
+      }, 12000);
+
+      function finish(callback, value) {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        callback(value);
+      }
+
+      function create() {
+        if (settled) return;
+
+        if (!window.AMap.Geolocation) {
+          finish(reject, { info: "PLUGIN_UNAVAILABLE" });
+          return;
+        }
+
+        geolocationInstance = new window.AMap.Geolocation({
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0,
+          needAddress: false,
+          showButton: false,
+          showMarker: false,
+          showCircle: false,
+          panToLocation: false,
+          zoomToAccuracy: false
+        });
+
+        geolocationInstance.on("complete", handleAmapLocationSuccess);
+        geolocationInstance.on("error", handleAmapLocationError);
+        finish(resolve, geolocationInstance);
+      }
+
+      if (window.AMap.Geolocation) {
+        create();
+        return;
+      }
+
+      try {
+        window.AMap.plugin("AMap.Geolocation", create);
+      } catch (error) {
+        finish(reject, error);
+      }
+    });
   }
 
   function setLocationPending(isPending) {
@@ -961,24 +1119,37 @@
     }
   }
 
-  function handleLocationSuccess(position) {
-    var coords = position && position.coords;
-    var lat = coords ? Number(coords.latitude) : NaN;
-    var lng = coords ? Number(coords.longitude) : NaN;
+  function handleAmapLocationSuccess(result) {
+    var position = result && result.position;
+    var lng = position
+      ? Number(typeof position.getLng === "function" ? position.getLng() : position.lng)
+      : NaN;
+    var lat = position
+      ? Number(typeof position.getLat === "function" ? position.getLat() : position.lat)
+      : NaN;
 
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-      handleLocationError({ code: 2 });
+      handleAmapLocationError({ info: "NO_POSITION", message: "定位结果没有坐标" });
       return;
     }
 
-    var rawAccuracy = coords ? Number(coords.accuracy) : NaN;
+    var rawAccuracy = result ? Number(result.accuracy) : NaN;
     var accuracy = Number.isFinite(rawAccuracy) && rawAccuracy > 0 ? rawAccuracy : null;
 
+    // 高德 Geolocation 返回 GCJ-02；直接作为用户坐标，避免再次坐标转换。
+    applyUserLocation(lng, lat, accuracy, {
+      source: "amap",
+      locationType: result && result.location_type ? String(result.location_type) : ""
+    });
+  }
+
+  function applyUserLocation(lng, lat, accuracy, meta) {
     state.userLocation = {
       lat: lat,
       lng: lng,
       accuracy: accuracy,
-      manual: false
+      manual: false,
+      source: meta && meta.source ? meta.source : "amap"
     };
     state.locationState = "success";
     dom.locateButton.disabled = false;
@@ -991,22 +1162,24 @@
     state.sortMode = "distance";
     dom.sortSelect.value = "distance";
 
-    // 重新生成弹窗内容，让已存在的 marker 弹窗也能读到最新定位距离。
-    renderMarkers(getFilteredParks());
     showUserLocation();
     renderList(getFilteredParks(), { resetScroll: true });
     updateResetState();
 
     var accuracyText = formatAccuracy(accuracy);
-    // 浏览器 / 系统定位常见精度为 10–100 米；超过 150 米时明确提示为“大概位置”。
-    var isCoarse = accuracy !== null && accuracy > 150;
+    var locationType = meta && meta.locationType ? meta.locationType : "";
+    // 精度超过 150 米，或高德返回的不是浏览器 HTML5 精确定位，都按“大概位置”提示。
+    var isCoarse =
+      (accuracy !== null && accuracy > 150) ||
+      (locationType !== "" && locationType !== "html5");
 
     if (isCoarse) {
+      var coarseText = accuracyText ? "（" + accuracyText + "）" : "";
       setLocationStatus(
         "warning",
-        "精度约 " + accuracyText + "，距离仅供参考；拖动蓝点校正。"
+        "定位精度较低" + coarseText + "，距离仅供参考；拖动蓝点校正。"
       );
-      showToast("定位精度较低（" + accuracyText + "），可拖动蓝点校正", "info", 6200);
+      showToast("定位精度较低" + coarseText + "，可拖动蓝点校正", "info", 6200);
     } else {
       setLocationStatus(
         "success",
@@ -1020,15 +1193,16 @@
     if (map) {
       // 低精度时不放得太大，避免把一个“大概位置”显示得像精确坐标。
       var targetZoom = isCoarse
-        ? accuracy > 800
+        ? accuracy && accuracy > 800
           ? 11
           : 12
         : Math.max(map.getZoom(), 13);
 
-      if (prefersReducedMotion.matches) {
-        map.setView([lat, lng], targetZoom, { animate: false });
+      if (typeof map.setZoomAndCenter === "function") {
+        map.setZoomAndCenter(targetZoom, [lng, lat]);
       } else {
-        map.flyTo([lat, lng], targetZoom, { duration: 0.8, easeLinearity: 0.25 });
+        map.setZoom(targetZoom);
+        map.setCenter([lng, lat]);
       }
     }
   }
@@ -1040,18 +1214,34 @@
     return "±" + Math.round(accuracy / 1000) + " 公里";
   }
 
-  function handleLocationError(error) {
+  function handleAmapLocationError(error) {
+    handleLocationError(error, "geo");
+  }
+
+  function handleLocationError(error, source) {
     state.locationState = "error";
     dom.locateButton.disabled = false;
     setLocationPending(false);
     updateDistanceOption();
 
-    var code = error && typeof error.code === "number" ? error.code : -1;
+    var rawText = [
+      error && error.info,
+      error && error.message,
+      error && error.code,
+      error && error.type
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    var denied = /DENIED|PERMISSION|AUTH|USER_DENIED|拒绝/i.test(rawText);
+    var timeout = /TIMEOUT|TIME_OUT|超时/i.test(rawText);
     var message;
 
-    if (code === 1) {
+    if (source === "plugin") {
+      message = "高德定位插件加载失败，无法获取位置，距离排序不可用；地图与列表仍可正常使用。";
+    } else if (denied) {
       message = "无法获取位置，距离排序不可用。你拒绝了定位权限，可继续浏览地图和公园列表。";
-    } else if (code === 3) {
+    } else if (timeout) {
       message = "定位超时，无法获取位置，距离排序不可用。请稍后重试，或继续浏览地图。";
     } else {
       message = "无法获取位置，距离排序不可用。请检查设备定位服务后再试，其余功能不受影响。";
@@ -1075,100 +1265,90 @@
 
   /**
    * 用户位置：蓝色圆点 + 真实精度圈。
-   * 蓝点可拖动：浏览器定位依赖系统 / 网络，室内或 VPN 环境可能偏差很大，
-   * 手动校正比假装精确更可靠。拖动后会立刻重算列表与弹窗中的直线距离。
+   * AMap.Geolocation 返回的坐标已经是 GCJ-02，可直接创建 Marker/Circle。
+   * 蓝点可拖动校正；拖动事件在 AMap.Marker 的 dragend 中处理。
    */
   function showUserLocation() {
-    if (!map || !window.L || !userLayer || !state.userLocation) return;
+    if (!map || !window.AMap || !state.userLocation) return;
 
-    userLayer.clearLayers();
-    userMarker = null;
-    userAccuracyCircle = null;
+    if (userMarker) {
+      map.remove(userMarker);
+      userMarker = null;
+    }
+    if (userAccuracyCircle) {
+      map.remove(userAccuracyCircle);
+      userAccuracyCircle = null;
+    }
 
     var location = state.userLocation;
 
     if (location.accuracy && location.accuracy > 25) {
-      userAccuracyCircle = window.L.circle([location.lat, location.lng], {
-        // 显示浏览器真实返回的精度半径，不缩小、不夸大。
+      userAccuracyCircle = new window.AMap.Circle({
+        center: [location.lng, location.lat],
+        // 显示高德返回的真实精度半径，不缩小、不夸大。
         radius: location.accuracy,
-        color: "#1f5fa8",
-        weight: 2,
-        opacity: 0.6,
-        dashArray: "5 5",
+        strokeColor: "#1f5fa8",
+        strokeWeight: 2,
+        strokeOpacity: 0.6,
+        strokeStyle: "dashed",
         fillColor: "#2e659f",
         fillOpacity: 0.12,
-        interactive: false,
-        className: "user-accuracy-circle"
-      }).addTo(userLayer);
+        zIndex: 90,
+        bubble: true
+      });
+      map.add(userAccuracyCircle);
     }
 
-    var userIcon = window.L.divIcon({
-      className: "user-location-icon",
-      html:
-        '<span class="user-location-wrap" aria-hidden="true">' +
+    userMarker = new window.AMap.Marker({
+      position: [location.lng, location.lat],
+      content:
+        '<div class="user-location-wrap" aria-hidden="true">' +
         '<span class="user-location-pulse"></span>' +
         '<span class="user-location-core"></span>' +
-        "</span>",
-      iconSize: [44, 44],
-      iconAnchor: [22, 22]
-    });
-
-    userMarker = window.L.marker([location.lat, location.lng], {
-      icon: userIcon,
+        "</div>",
+      offset: new window.AMap.Pixel(-22, -22),
       draggable: true,
-      autoPan: true,
-      interactive: true,
-      keyboard: false,
-      zIndexOffset: 2000,
       title: "我的位置，可拖动校正",
-      alt: "我的位置，可拖动校正"
-    });
-
-    userMarker.bindTooltip("我的位置 · 可拖动校正", {
-      direction: "top",
-      offset: [0, -15],
-      opacity: 0.92
+      zIndex: 2000
     });
 
     userMarker.on("dragstart", function () {
-      if (map) map.stop();
-      userMarker.closeTooltip();
+      closeInfoWindow();
     });
 
     userMarker.on("dragend", handleUserLocationDragEnd);
-    userMarker.addTo(userLayer);
-
-    var markerElement = userMarker.getElement();
-    if (markerElement) {
-      markerElement.setAttribute("aria-label", "我的位置，可拖动校正");
-    }
+    map.add(userMarker);
   }
 
   /**
    * 手动拖动蓝点后，以新坐标作为距离计算基准，并移除失效的自动精度圈。
    */
   function handleUserLocationDragEnd(event) {
-    var latlng = event && event.target ? event.target.getLatLng() : null;
-    if (!latlng) return;
+    var position = event && event.target ? event.target.getPosition() : null;
+    if (!position) return;
+
+    var lng = Number(typeof position.getLng === "function" ? position.getLng() : position.lng);
+    var lat = Number(typeof position.getLat === "function" ? position.getLat() : position.lat);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
 
     state.userLocation = {
-      lat: latlng.lat,
-      lng: latlng.lng,
+      lat: lat,
+      lng: lng,
       accuracy: null,
-      manual: true
+      manual: true,
+      source: "manual"
     };
     state.locationState = "success";
 
-    if (userAccuracyCircle && userLayer) {
-      userLayer.removeLayer(userAccuracyCircle);
+    if (userAccuracyCircle) {
+      map.remove(userAccuracyCircle);
       userAccuracyCircle = null;
     }
 
-    if (userMarker) {
-      userMarker.setTooltipContent("已校正的位置 · 可继续拖动");
+    if (userMarker && typeof userMarker.setTitle === "function") {
+      userMarker.setTitle("已校正的位置，可继续拖动");
     }
 
-    renderMarkers(getFilteredParks());
     renderList(getFilteredParks(), { resetScroll: true });
     updateDistanceOption();
     updateResetState();
@@ -1240,7 +1420,7 @@
     lastFocusedElement = document.activeElement;
 
     // 详情打开后不再需要地图气泡，关闭时把角落的“全览/定位”按钮还回来。
-    if (map) map.closePopup();
+    closeInfoWindow();
 
     dom.detailContent.innerHTML = buildDetailHtml(park);
 
@@ -1391,7 +1571,8 @@
     highlightSelectedCard(true);
 
     if (map) {
-      map.setView([park.lat, park.lng], Math.max(map.getZoom(), 14), { animate: false });
+      map.setZoom(Math.max(map.getZoom(), 14));
+      map.setCenter([park.lng, park.lat]);
     }
 
     openDetail(park.id, { updateUrl: false });
@@ -1402,6 +1583,13 @@
    * ------------------------------------------------------------------ */
   function handleDocumentClick(event) {
     if (!event.target || !event.target.closest) return;
+
+    var infoClose = event.target.closest("[data-close-info]");
+    if (infoClose) {
+      event.preventDefault();
+      closeInfoWindow();
+      return;
+    }
 
     var popupDetail = event.target.closest("[data-open-park]");
     if (popupDetail) {

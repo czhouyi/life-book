@@ -1,0 +1,20 @@
+﻿<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+html,body{margin:0;background:#eee;font-family:sans-serif}
+#map{width:390px;height:388px;position:relative;overflow:hidden;background:#ddd}
+.card{width:276px;height:221px;background:#fffdf8;border:1px solid #ccc;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.2);box-sizing:border-box;padding:16px}
+</style></head>
+<body>
+<div id="map"></div>
+<script>window._AMapSecurityConfig={securityJsCode:"484dfa97b57505bc47a8ddefdc440c6c"}</script>
+<script src="https://webapi.amap.com/maps?v=2.0&key=b8e27bc04135bc0de72630c9b26764f8"></script>
+<script>
+window.testMap = new AMap.Map('map',{zoom:15,center:[121.55217277357715,31.21354489966809],viewMode:'2D',features:['bg','road'],resizeEnable:true});
+window.testMarker = new AMap.Marker({position:[121.55217277357715,31.21354489966809],content:'<div style="width:44px;height:44px;background:red;border-radius:50%"></div>',offset:new AMap.Pixel(-22,-42)});
+testMap.add(testMarker);
+window.cardHtml='<div class="card" id="card">Card content</div>';
+window.makeInfo=function(autoMove){ if(window.testInfo) window.testInfo.close(); window.testInfo=new AMap.InfoWindow({isCustom:true,autoMove:autoMove,offset:new AMap.Pixel(0,-50),content:cardHtml}); window.testInfo.open(testMap,testMarker.getPosition()); };
+window.measure=function(label){ const m=document.querySelector('.amap-marker').getBoundingClientRect(); const i=document.querySelector('.amap-info')?document.querySelector('.amap-info').getBoundingClientRect():null; const c=document.querySelector('#card')?document.querySelector('#card').getBoundingClientRect():null; const map=document.querySelector('.amap-container').getBoundingClientRect(); return {label,map:[map.x,map.y,map.width,map.height],marker:[m.x,m.y,m.width,m.height],info:i&&[i.x,i.y,i.width,i.height],card:c&&[c.x,c.y,c.width,c.height],center:testMap.getCenter().toArray(),zoom:testMap.getZoom(),pos:testMap.lngLatToContainer(testMarker.getPosition()).toString()}; };
+window.addEventListener('error',e=>console.log('ERR',e.message));
+</script></body></html>

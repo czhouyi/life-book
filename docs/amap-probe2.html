@@ -1,0 +1,31 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>html,body,#map{width:100%;height:100%;margin:0}</style></head>
+<body>
+<div id="map"></div>
+<script>window._AMapSecurityConfig = { securityJsCode: "484dfa97b57505bc47a8ddefdc440c6c" };</script>
+<script src="https://webapi.amap.com/maps?v=2.0&key=b8e27bc04135bc0de72630c9b26764f8&plugin=AMap.Geolocation"></script>
+<script>
+window.logs=[];
+const log=(...args)=>{console.log(...args);window.logs.push(args.map(String).join(' '));};
+window.mapTest=new AMap.Map('map',{zoom:12,center:[121.47,31.23],viewMode:'2D',features:['bg','road'],resizeEnable:true});
+mapTest.on('complete',()=>log('MAP_COMPLETE'));
+setTimeout(()=>{
+ const m=new AMap.Marker({position:[121.4737,31.2304],title:'marker'});
+ mapTest.add(m);
+ const iw=new AMap.InfoWindow({content:'<div style="width:230px;padding:12px">custom info</div>',isCustom:true,offset:new AMap.Pixel(0,-28),autoMove:true});
+ iw.on('open',()=>log('IW_OPEN'));
+ iw.on('close',()=>log('IW_CLOSE'));
+ iw.open(mapTest,[121.4737,31.2304]);
+ window.testInfo=iw; window.testMarker=m;
+ setTimeout(()=>log('IW_DOM',Array.from(document.querySelectorAll('[class*="amap-info"]')).map(el=>el.className+'|'+(el.getAttribute('style')||'')).join(' ;; ')),400);
+},800);
+AMap.plugin('AMap.Geolocation',()=>{
+ const geo=new AMap.Geolocation({enableHighAccuracy:true,timeout:15000,needAddress:false,showButton:false,showMarker:false,showCircle:false,panToLocation:false,zoomToAccuracy:false});
+ geo.on('complete',res=>{ window.geoResult={lng:res.position.lng,lat:res.position.lat,accuracy:res.accuracy,location_type:res.location_type,info:res.info,formattedAddress:res.formattedAddress}; log('GEO_COMPLETE',JSON.stringify(window.geoResult)); });
+ geo.on('error',err=>{ window.geoError={info:err.info,message:err.message,code:err.code}; log('GEO_ERROR',JSON.stringify(window.geoError)); });
+ window.testGeo=geo;
+ setTimeout(()=>geo.getCurrentPosition(),600);
+});
+</script>
+</body></html>

@@ -1,0 +1,35 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>html,body,#map{width:100%;height:100%;margin:0}</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+window._AMapSecurityConfig = { securityJsCode: "484dfa97b57505bc47a8ddefdc440c6c" };
+</script>
+<script src="https://webapi.amap.com/maps?v=2.0&key=b8e27bc04135bc0de72630c9b26764f8"></script>
+<script>
+window.__errors = [];
+window.addEventListener('error', e => window.__errors.push(String(e.message)));
+try {
+  window.mapTest = new AMap.Map('map', { zoom: 12, center: [121.47, 31.23], viewMode: '2D', features: ['bg','road'], resizeEnable: true });
+  mapTest.on('complete', () => console.log('MAP_COMPLETE'));
+  setTimeout(() => {
+    const marker = new AMap.Marker({ position: [121.4737, 31.2304], title: 'test marker', content: '<div id="custommarker" style="width:44px;height:44px;background:red;border-radius:50%;"></div>', offset: new AMap.Pixel(-22,-22) });
+    mapTest.add(marker);
+    window.testMarker = marker;
+    const iw = new AMap.InfoWindow({ content: '<div id="testpop" style="width:220px;padding:12px">hello info window</div>', offset: new AMap.Pixel(0,-28), autoMove: true });
+    iw.open(mapTest, [121.4737, 31.2304]);
+    window.testInfo = iw;
+    console.log('MARKER_ADDED', mapTest.getAllOverlays('marker').length);
+  }, 1200);
+} catch (e) {
+  console.error('INIT_ERROR', e);
+  window.__initError = String(e && e.stack || e);
+}
+</script>
+</body>
+</html>

@@ -7,7 +7,6 @@
   <title>上海公园 · 生活之书</title>
   <meta name="description" content="一张可以随身翻阅的上海公园地图：按名称与标签筛选，定位后按距离排序，点击标记查看公园历史、面积、开放时间与特色标签。">
   <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="../assets/css/base.css">
   <link rel="stylesheet" href="../assets/css/parks.css">
 </head>
@@ -114,6 +113,11 @@
         <span>定位</span>
       </button>
 
+      <div class="map-zoom" role="group" aria-label="地图缩放">
+        <button class="map-zoom__button" id="zoom-in" type="button" aria-label="放大地图">+</button>
+        <button class="map-zoom__button" id="zoom-out" type="button" aria-label="缩小地图">−</button>
+      </div>
+
       <div class="map-loading" id="map-loading" aria-hidden="true">
         <span class="spinner"></span>
         <span>正在展开地图</span>
@@ -141,7 +145,20 @@
     </div>
   </dialog>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!--
+    高德地图 Key 与安全密钥会直接出现在前端源码中，无法做到真正保密；
+    本项目仅限个人非商业使用。请在高德开放平台为该 Key 配置「安全域名」和较低配额。
+    安全密钥必须在 AMap JS API 之前配置。
+  -->
+  <script>
+    window._AMapSecurityConfig = {
+      securityJsCode: "484dfa97b57505bc47a8ddefdc440c6c"
+    };
+  </script>
+  <script src="https://webapi.amap.com/maps?v=2.0&key=b8e27bc04135bc0de72630c9b26764f8"></script>
+
+  <!-- gcoord：本地引入，用于在运行时把 parks.json 的 WGS-84 坐标转换为 GCJ-02 -->
+  <script src="../assets/js/vendor/gcoord.js"></script>
   <script src="../assets/js/parks.js"></script>
 </body>
 </html>
