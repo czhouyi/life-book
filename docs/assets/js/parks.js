@@ -101,6 +101,9 @@
     dom.mapCanvas = byId("map");
     dom.mapPanel = document.querySelector(".map-panel");
     dom.mapLoading = byId("map-loading");
+    dom.pageHeader = document.querySelector(".parks-header");
+    dom.controls = document.querySelector(".controls");
+    dom.listPanel = document.querySelector(".list-panel");
     dom.search = byId("park-search");
     dom.clearSearch = byId("clear-search");
     dom.tagList = byId("tag-list");
@@ -112,6 +115,7 @@
     dom.locationStatus = byId("location-status");
     dom.locateButton = byId("locate-button");
     dom.showAll = byId("show-all");
+    dom.fullscreenButton = byId("map-fullscreen");
     dom.zoomIn = byId("zoom-in");
     dom.zoomOut = byId("zoom-out");
     dom.toast = byId("toast");
@@ -136,6 +140,10 @@
     dom.resetFilters.addEventListener("click", resetFilters);
     dom.locateButton.addEventListener("click", locateUser);
     dom.showAll.addEventListener("click", fitAllVisibleParks);
+    if (dom.fullscreenButton) {
+      dom.fullscreenButton.addEventListener("click", toggleMapFullscreen);
+    }
+    document.addEventListener("keydown", handleFullscreenEscape);
     dom.zoomIn.addEventListener("click", function () {
       if (map) map.zoomIn();
     });
@@ -611,10 +619,26 @@
   }
 
   /**
-   * 默认按中文名称排序；定位成功后允许按 Haversine 直线距离升序。
+   * 默认按中文名称排序；支持面积从大到小、定位后按距离升序。
    */
   function sortParks(parks) {
     var result = parks.slice();
+
+    if (state.sortMode === "area") {
+      result.sort(function (a, b) {
+        var areaA = parseAreaHectares(a.area);
+        var areaB = parseAreaHectares(b.area);
+
+        if (areaA === null && areaB === null) {
+          return nameCollator.compare(a.name, b.name);
+        }
+        if (areaA === null) return 1;
+        if (areaB === null) return -1;
+        if (areaB !== areaA) return areaB - areaA;
+        return nameCollator.compare(a.name, b.name);
+      });
+      return result;
+    }
 
     if (state.sortMode === "distance" && state.userLocation) {
       result.sort(function (a, b) {
@@ -627,6 +651,40 @@
       return nameCollator.compare(a.name, b.name);
     });
     return result;
+  }
+
+  /**
+   * 把各种面积写法换算成公顷，便于排序。
+   * 支持：公顷、平方公里 / 平方千米、亩、万公顷、万亩、万平方米 / 平方米。
+   * 没有面积数字的记录（例如“8 公里环湖岸线”）返回 null，排在最后。
+   */
+  function parseAreaHectares(value) {
+    var text = normalizeText(value).replace(/,/g, "").replace(/\s+/g, "");
+    var match = text.match(
+      /(\d+(?:\.\d+)?)(万公顷|万亩|万平方米|平方公里|平方千米|公顷|平方米|亩)/
+    );
+    if (!match) return null;
+
+    var amount = Number(match[1]);
+    if (!Number.isFinite(amount)) return null;
+
+    switch (match[2]) {
+      case "平方公里":
+      case "平方千米":
+        return amount * 100;
+      case "万亩":
+        return (amount * 10000) / 15;
+      case "万公顷":
+        return amount * 10000;
+      case "万平方米":
+        return amount;
+      case "平方米":
+        return amount / 10000;
+      case "亩":
+        return amount / 15;
+      default:
+        return amount;
+    }
   }
 
   function handleSortChange() {
@@ -880,6 +938,7 @@
 
   function buildPopupHtml(park) {
     var distance = getDistanceText(park);
+    var navigationUrl = buildNavigationUrl(park);
     var tags = park.tags.slice(0, 4);
     var tagsHtml = tags
       .map(function (tag) {
@@ -917,6 +976,7 @@
       (distance
         ? '<p class="map-popup__distance">距你 ' + escapeHtml(distance) + "（直线）</p>"
         : "") +
+      '<div class="map-popup__actions">' +
       '<button class="popup-detail-button" type="button" data-open-park="' +
       escapeAttr(park.id) +
       '">查看详情' +
@@ -924,8 +984,33 @@
       '<path d="M3 7.5h9M8 3l4.5 4.5L8 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>' +
       "</svg>" +
       "</button>" +
+      '<a class="popup-nav-button" href="' +
+      escapeAttr(navigationUrl) +
+      '" target="_blank" rel="noopener noreferrer" aria-label="在高德地图导航到' +
+      escapeAttr(park.name) +
+      '">导航' +
+      '<svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">' +
+      '<path d="M3 11 11 3M5 3h6v6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+      "</svg>" +
+      "</a>" +
+      "</div>" +
       "</article>"
     );
+  }
+
+  /**
+   * 高德 URI：手机优先唤起高德 App 导航，未安装或桌面端则打开高德网页路线。
+   * 目的地使用 GCJ-02，与 parks.json 一致。
+   */
+  function buildNavigationUrl(park) {
+    var params = new URLSearchParams();
+    params.set("to", park.lng + "," + park.lat + "," + String(park.name || "").replace(/,/g, " "));
+    params.set("mode", "car");
+    params.set("policy", "1");
+    params.set("coordinate", "gaode");
+    params.set("src", "life-book");
+    params.set("callnative", "1");
+    return "https://uri.amap.com/navigation?" + params.toString();
   }
 
   /* ------------------------------------------------------------------
@@ -1023,6 +1108,65 @@
     if (typeof map.setFitView === "function") {
       map.setFitView(markers, false, [60, 60, 60, 60], 13);
     }
+  }
+
+  /**
+   * 手机地图全屏：用 fixed 覆盖视口，比原生 Fullscreen API 在 iOS 上更稳定。
+   * 进入时把头部、筛选和列表设为 inert，避免键盘焦点跑到被遮住的控件上。
+   */
+  function setMapFullscreen(next) {
+    if (!dom.mapPanel || !dom.fullscreenButton) return;
+
+    var isFullscreen = Boolean(next);
+    if (dom.mapPanel.classList.contains("is-map-fullscreen") === isFullscreen) {
+      return;
+    }
+
+    dom.mapPanel.classList.toggle("is-map-fullscreen", isFullscreen);
+    dom.fullscreenButton.setAttribute("aria-pressed", String(isFullscreen));
+
+    var label = isFullscreen ? "退出全屏地图" : "全屏查看地图";
+    var labelElement = dom.fullscreenButton.querySelector(".map-fullscreen__label");
+    if (labelElement) {
+      labelElement.textContent = isFullscreen ? "退出" : "全屏";
+    }
+    dom.fullscreenButton.setAttribute("aria-label", label);
+    dom.fullscreenButton.title = label;
+
+    [dom.pageHeader, dom.controls, dom.listPanel].forEach(function (element) {
+      if (!element) return;
+      if (isFullscreen) {
+        element.setAttribute("inert", "");
+      } else {
+        element.removeAttribute("inert");
+      }
+    });
+
+    if (isFullscreen) closeInfoWindow();
+
+    if (map) {
+      window.requestAnimationFrame(function () {
+        map.resize();
+      });
+      window.setTimeout(function () {
+        if (map) map.resize();
+      }, 180);
+    }
+  }
+
+  function toggleMapFullscreen() {
+    if (!dom.mapPanel) return;
+    setMapFullscreen(!dom.mapPanel.classList.contains("is-map-fullscreen"));
+  }
+
+  function handleFullscreenEscape(event) {
+    if (event.key !== "Escape" || !dom.mapPanel) return;
+    if (!dom.mapPanel.classList.contains("is-map-fullscreen")) return;
+    if (dom.detailDialog && dom.detailDialog.open) return;
+
+    event.preventDefault();
+    closeInfoWindow();
+    setMapFullscreen(false);
   }
 
   function findPark(parkId) {
@@ -1452,6 +1596,7 @@
   function buildDetailHtml(park) {
     var primaryType = park.tags[0] || "城市绿地";
     var district = park.district || "上海";
+    var navigationUrl = buildNavigationUrl(park);
     var englishName = park.englishName
       ? '<p class="detail-en">' + escapeHtml(park.englishName) + "</p>"
       : "";
@@ -1502,6 +1647,7 @@
       "</dl>" +
       "</div>" +
       '<footer class="detail-foot">' +
+      '<div class="detail-actions">' +
       '<button class="detail-map-button" type="button" data-detail-fly="' +
       escapeAttr(park.id) +
       '">在地图上查看' +
@@ -1509,6 +1655,16 @@
       '<path d="M3 7.5h9M8 3l4.5 4.5L8 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>' +
       "</svg>" +
       "</button>" +
+      '<a class="detail-nav-button" href="' +
+      escapeAttr(navigationUrl) +
+      '" target="_blank" rel="noopener noreferrer" aria-label="在高德地图导航到' +
+      escapeAttr(park.name) +
+      '">导航' +
+      '<svg width="15" height="15" viewBox="0 0 15 15" aria-hidden="true">' +
+      '<path d="M3 12 12 3M5 3h7v7" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>' +
+      "</svg>" +
+      "</a>" +
+      "</div>" +
       '<p class="detail-note">静态资料整理<br>开放时间以园区公告为准</p>' +
       "</footer>"
     );
