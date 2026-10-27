@@ -2,10 +2,9 @@
  * 上海公园地图页（高德地图 JavaScript API 2.0）
  * ------------------------------------------------------------------
  * 坐标说明：
- * - parks.json 目前的坐标按 WGS-84 处理；加载后使用本地 gcoord 转换为 GCJ-02，
- *   再交给高德 Marker / Circle / 距离计算。
- * - 如果确认数据本身已经是 GCJ-02，把 PARKS_ARE_WGS84 改为 false 即可走恒等映射。
- * - AMap.Geolocation 返回的坐标已经是 GCJ-02，直接用于地图与距离计算，不再转换。
+ * - parks.json 中的 lat/lng 已统一为高德 GCJ-02 坐标（通过高德坐标拾取器更新），
+ *   加载后直接用于高德 Marker / Circle / Haversine 距离，不再做二次转换。
+ * - AMap.Geolocation 返回的坐标同样是 GCJ-02，直接使用。
  *
  * 安全说明：
  * - Key 与 securityJsCode 位于 parks/index.html，纯静态站无法隐藏前端密钥；
@@ -19,7 +18,7 @@
  * 4. 详情使用原生 <dialog>；高德信息窗体使用 isCustom 卡片。
  * 5. 列表滚动使用原生 overflow-y + overscroll-behavior。
  *
- * 数据流：fetch parks.json → normalize（WGS-84→GCJ-02）→ filter → sort（名称 / Haversine 距离）
+ * 数据流：fetch parks.json → normalize（GCJ-02 直接使用）→ filter → sort（名称 / Haversine 距离）
  *        → 同步渲染列表与高德 Marker。
  */
 (function () {
@@ -28,8 +27,6 @@
   var EARTH_RADIUS_KM = 6371;
   var MOBILE_QUERY = "(max-width: 768px)";
   var SEARCH_DEBOUNCE = 120;
-  // 原始 parks.json 假定为 WGS-84；如果数据实际为 GCJ-02，改成 false 使用恒等映射。
-  var PARKS_ARE_WGS84 = true;
   var FILTER_TAGS = [
     "动物园",
     "植物园",
@@ -282,10 +279,6 @@
         applyFilters({ resetScroll: true });
         hideMapLoading();
 
-        if (PARKS_ARE_WGS84 && !window.gcoord) {
-          showToast("坐标转换库加载失败，公园标记可能有偏移", "error", 6200);
-        }
-
         restoreDetailFromUrl();
         showToast("已收录 " + normalized.length + " 处上海绿地", "success", 2600);
       })
@@ -332,58 +325,21 @@
         )
       : [];
 
-    // parks.json 按 WGS-84 维护；高德地图与 AMap.Geolocation 使用 GCJ-02。
-    // 这里转换后，后续 Marker、Circle 与 Haversine 距离都使用 GCJ-02。
-    var converted = toGcj02(lng, lat);
-
+    // parks.json 已使用高德坐标拾取器的 GCJ-02 坐标；直接交给高德地图与距离计算。
     return {
       id: id,
       name: name,
       englishName: stringValue(raw.englishName),
       district: stringValue(raw.district),
       address: stringValue(raw.address),
-      // lat/lng 为地图使用的 GCJ-02；sourceLat/sourceLng 保留 JSON 原值，便于核对。
-      lat: converted.lat,
-      lng: converted.lng,
-      sourceLat: lat,
-      sourceLng: lng,
+      lat: lat,
+      lng: lng,
       area: stringValue(raw.area),
       hours: stringValue(raw.hours),
       history: stringValue(raw.history),
       highlight: stringValue(raw.highlight),
       tags: tags
     };
-  }
-
-  /**
-   * WGS-84 → GCJ-02。
-   *
-   * 假设：parks.json 的坐标是 GPS 常用的 WGS-84。
-   * 方法：使用本地引入的 gcoord（与高德官方 convertFrom 不同，不消耗接口配额）。
-   *
-   * 如果转换后整体向东北偏移约 300–600 米，说明 JSON 原始坐标可能已经是 GCJ-02，
-   * 此时把文件顶部的 PARKS_ARE_WGS84 改为 false（恒等映射），再核对标记。
-   */
-  function toGcj02(lng, lat) {
-    if (!PARKS_ARE_WGS84) return { lng: lng, lat: lat };
-
-    if (!window.gcoord || typeof window.gcoord.transform !== "function") {
-      console.warn("gcoord 未加载，暂以原始坐标显示；请检查 vendor/gcoord.js");
-      return { lng: lng, lat: lat };
-    }
-
-    var result = window.gcoord.transform(
-      [lng, lat],
-      window.gcoord.WGS84,
-      window.gcoord.GCJ02
-    );
-
-    if (!result || !Number.isFinite(Number(result[0])) || !Number.isFinite(Number(result[1]))) {
-      console.warn("坐标转换失败，暂以原始坐标显示：", lng, lat);
-      return { lng: lng, lat: lat };
-    }
-
-    return { lng: Number(result[0]), lat: Number(result[1]) };
   }
 
   function stringValue(value) {
