@@ -31,7 +31,7 @@ life-book/
 │   └── parks/
 │       ├── index.html          # 上海公园地图页
 │       └── data/
-│           └── parks.json      # 40 条公园数据
+│           └── parks.json      # 100 条公园数据
 ├── scripts/
 │   └── fetch-amap-coords.mjs   # 高德坐标拾取脚本
 └── README.md

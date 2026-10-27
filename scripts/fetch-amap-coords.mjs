@@ -171,6 +171,12 @@ function scoreCandidate(poi, park) {
 
 function chooseBestPoi(pois, park) {
   const scored = pois
+    // 过滤公交站、地铁站、停车场、酒店等非公园 POI，避免名称相似导致的误匹配。
+    .filter(function (poi) {
+      return !/公交站|地铁站|车站|停车场|售票|入口|大门|民宿|酒店|公寓|售票|旁/.test(
+        String(poi.name || "")
+      );
+    })
     .map(function (poi) {
       return { poi: poi, score: scoreCandidate(poi, park) };
     })

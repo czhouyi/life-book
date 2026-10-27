@@ -39,6 +39,8 @@
     "口袋公园",
     "古典园林",
     "湿地公园",
+    "湖泊公园",
+    "体育公园",
     "水域",
     "露营",
     "烧烤",
@@ -66,6 +68,7 @@
   var userAccuracyCircle = null;
   var geolocationInstance = null;
   var visibleMarkerIds = new Set();
+  var infoRequestToken = 0;
   var mapReady = false;
   var resizeTimer = null;
   var searchTimer = null;
@@ -814,14 +817,65 @@
   function openParkInfo(park, marker) {
     if (!map || !infoWindow || !marker) return;
 
+    // 让所有尚未执行的“延迟打开”失效，避免连续操作后打开旧公园。
+    infoRequestToken += 1;
+
     infoWindow.setContent(buildPopupHtml(park));
     if (dom.mapPanel) dom.mapPanel.classList.add("has-popup");
     infoWindow.open(map, marker.getPosition());
   }
 
   function closeInfoWindow() {
+    infoRequestToken += 1;
     if (infoWindow) infoWindow.close();
     if (dom.mapPanel) dom.mapPanel.classList.remove("has-popup");
+  }
+
+  /**
+   * 必须等 setZoom/setCenter 的地图移动完成后再打开信息窗体。
+   * 否则 InfoWindow 的 autoMove 会与地图移动叠加，把选中的点推到屏幕边缘。
+   */
+  function openInfoAfterMapSettles(park, marker) {
+    var token = ++infoRequestToken;
+    var done = false;
+    var settleTimer = null;
+    var fallbackTimer = null;
+
+    function cleanup() {
+      window.clearTimeout(settleTimer);
+      window.clearTimeout(fallbackTimer);
+      if (map && typeof map.off === "function") {
+        map.off("moveend", handleMapSettled);
+        map.off("zoomend", handleMapSettled);
+      }
+    }
+
+    function openNow() {
+      if (done) return;
+      done = true;
+      cleanup();
+      if (token !== infoRequestToken) return;
+      openParkInfo(park, marker);
+    }
+
+    function handleMapSettled() {
+      if (done) return;
+      if (token !== infoRequestToken) {
+        done = true;
+        cleanup();
+        return;
+      }
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(openNow, 140);
+    }
+
+    if (map && typeof map.on === "function") {
+      map.on("moveend", handleMapSettled);
+      map.on("zoomend", handleMapSettled);
+    }
+
+    // 地图已经位于目标位置、不再触发 moveend 时的兜底。
+    fallbackTimer = window.setTimeout(openNow, 1000);
   }
 
   function buildPopupHtml(park) {
@@ -908,11 +962,7 @@
 
     if (options.openPopup === false) return;
 
-    window.clearTimeout(state.popupTimer);
-    var delay = options.fly === false ? 20 : prefersReducedMotion.matches ? 80 : 360;
-    state.popupTimer = window.setTimeout(function () {
-      openParkInfo(park, marker);
-    }, delay);
+    openInfoAfterMapSettles(park, marker);
   }
 
   function highlightSelectedCard(shouldScroll) {
