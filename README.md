@@ -4,10 +4,10 @@
 
 ## 本地预览
 
-在仓库根目录运行任意静态服务器：
+站点的发布根目录是 `docs/`，在仓库根目录运行：
 
 ```bash
-python -m http.server 8000
+python -m http.server 8000 --directory docs
 ```
 
 然后访问 <http://localhost:8000/>。不要直接双击 `index.html` 用 `file://` 打开，否则浏览器会拦截 `fetch` 加载 JSON。
@@ -16,20 +16,22 @@ python -m http.server 8000
 
 ```
 life-book/
-├── index.html                  # 书架首页
-├── assets/
-│   ├── css/
-│   │   ├── base.css            # 通用变量、重置、可访问性
-│   │   ├── bookshelf.css       # 书架与纯 CSS 书封
-│   │   └── parks.css           # 地图页、Leaflet、移动端布局
-│   ├── js/
-│   │   ├── shelf.js            # 首页读取公园数量
-│   │   └── parks.js            # 地图、筛选、排序、定位、详情
-│   └── favicon.svg
-├── parks/
-│   ├── index.html              # 上海公园地图页
-│   └── data/
-│       └── parks.json          # 16 条公园数据
+├── docs/                       # GitHub Pages 发布目录
+│   ├── .nojekyll               # 跳过 Jekyll 构建，按纯静态文件发布
+│   ├── index.html              # 书架首页
+│   ├── assets/
+│   │   ├── css/
+│   │   │   ├── base.css        # 通用变量、重置、可访问性
+│   │   │   ├── bookshelf.css   # 书架与纯 CSS 书封
+│   │   │   └── parks.css       # 地图页、Leaflet、移动端布局
+│   │   ├── js/
+│   │   │   ├── shelf.js        # 首页读取公园数量
+│   │   │   └── parks.js        # 地图、筛选、排序、定位、详情
+│   │   └── favicon.svg
+│   └── parks/
+│       ├── index.html          # 上海公园地图页
+│       └── data/
+│           └── parks.json      # 16 条公园数据
 └── README.md
 ```
 
@@ -46,7 +48,7 @@ life-book/
 
 ## 修改公园数据
 
-编辑 `parks/data/parks.json`，每条记录至少包含：
+编辑 `docs/parks/data/parks.json`，每条记录至少包含：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -66,13 +68,16 @@ life-book/
 
 ## GitHub Pages 部署
 
-本项目选择 **main 分支根目录** 发布，不需要构建步骤。
+本项目选择 **main 分支 `/docs` 目录** 发布，不需要构建步骤。`docs/.nojekyll` 会让 GitHub Pages 跳过 Jekyll，避免出现 `assets/css/style.scss` 或 `/github/workspace/docs` 相关的构建错误。
 
-1. 将整个 `life-book` 目录推送到 GitHub 仓库的 `main` 分支，确保根目录下有 `index.html` 和 `parks/`。
+1. 将整个 `life-book` 目录推送到 GitHub 仓库的 `main` 分支，确保 `docs/index.html` 和 `docs/parks/` 已提交。
 2. 打开仓库 **Settings → Pages**。
 3. 在 **Build and deployment** 中，Source 选择 **Deploy from a branch**。
-4. Branch 选择 **main**，目录选择 **/ (root)**，点击 **Save**。
+4. Branch 选择 **main**，目录选择 **/docs**，点击 **Save**。
 5. 等待 Actions 完成，访问 `https://<用户名>.github.io/life-book/`。
+
+> 如果 Pages 目前误设为 **/ (root)**，站点会找不到根目录的 `index.html`；请把发布目录改为 **/docs**。
+> 错误日志中的 `No such file or directory @ dir_chdir0 - /github/workspace/docs` 正是“发布目录选了 `/docs`，但仓库里没有该目录”导致的；现在 `docs/` 已存在并包含完整站点。
 
 所有站内链接均使用相对路径，因此可以正常部署在 `/<仓库名>/` 子路径下。Leaflet 和 OpenStreetMap 瓦片通过 CDN 加载，访问时需要网络；定位功能在 GitHub Pages 的 HTTPS 环境下可用。
 
