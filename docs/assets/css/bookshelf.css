@@ -319,6 +319,38 @@ html {
   align-items: end;
 }
 
+/* 两本书并排：每本仍然保留完整书封，但缩到书架能容纳的宽度 */
+.book-display--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(18px, 2.4vw, 30px);
+  align-items: end;
+}
+
+.book-display--two .book-link {
+  width: 100%;
+  max-width: none;
+}
+
+.book-display--two .book-stage {
+  padding: 16px 18px 24px 10px;
+}
+
+.book-display--two .book {
+  width: clamp(180px, 17vw, 220px);
+}
+
+.book-display--two .book-meta {
+  max-width: none;
+}
+
+.book-display--two .book-meta h3 {
+  font-size: 25px;
+}
+
+.book-display--two .book-description {
+  max-width: none;
+}
+
 .book-link {
   display: flex;
   max-width: 400px;
@@ -434,6 +466,37 @@ html {
   border-radius: 1px 4px 4px 1px;
   content: "";
   pointer-events: none;
+}
+
+/* 第二本：地铁线路图的蓝绿色书封 */
+.book-cover--toilets {
+  background:
+    radial-gradient(circle at 16% 90%, rgba(203, 168, 107, 0.2), transparent 30%),
+    linear-gradient(152deg, #173c4a 0%, #102f3a 54%, #0b222b 100%);
+}
+
+.book-link--toilets .book-spine {
+  background: linear-gradient(90deg, #071a20, #10313c 58%, #194451);
+}
+
+.book-cover--toilets .cover-lines {
+  color: #9fd3c7;
+  opacity: 0.42;
+}
+
+.book-cover--toilets .cover-title {
+  font-size: clamp(29px, 2.4vw, 33px);
+  letter-spacing: 0.06em;
+  line-height: 1.16;
+  white-space: nowrap;
+}
+
+.book-subtitle {
+  margin: 5px 0 0;
+  color: var(--ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+  line-height: 1.65;
 }
 
 .cover-lines {
@@ -813,14 +876,26 @@ html {
     width: min(63vw, 240px);
   }
 
+  .book-display--two .book {
+    width: min(63vw, 240px);
+  }
+
   .book-meta {
     max-width: 340px;
     text-align: left;
   }
 
+  .book-display--two .book-meta {
+    max-width: 340px;
+  }
+
   .book-description {
     max-width: 330px;
     text-align: center;
+  }
+
+  .book-display--two .book-description {
+    max-width: 330px;
   }
 
   .next-volume {
