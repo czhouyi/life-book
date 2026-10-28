@@ -86,6 +86,7 @@
       state.currentSign = direction.sign;
       state.direction = direction;
       updateStationOptions();
+      updateServiceColor();
       runQuery();
     });
     dom.stationSelect.addEventListener("change", function () {
@@ -148,6 +149,7 @@
         dom.serviceSelect.value = state.currentLineId + "|" + state.currentSign;
         state.direction = parseDirection(dom.serviceSelect.value);
         updateStationOptions("人民广场");
+        updateServiceColor();
         dom.loading.hidden = true;
         runQuery();
       })
@@ -440,6 +442,21 @@
   function getLineName(lineId) {
     var line = state.lines[lineId];
     return line && line.name ? line.name : lineId + "号线";
+  }
+
+  function getLineColor(lineId) {
+    var line = state.lines[lineId];
+    return line && line.color ? line.color : "#24483a";
+  }
+
+  function updateServiceColor() {
+    var color = getLineColor(state.currentLineId);
+    if (dom.serviceSelect) {
+      dom.serviceSelect.style.setProperty("--line-color", color);
+    }
+    if (dom.routeStatus) {
+      dom.routeStatus.style.setProperty("--line-color", color);
+    }
   }
 
   /**
@@ -805,7 +822,13 @@
     var route = result.route;
     var lineBadges = station.lines
       .map(function (lineId) {
-        return '<span class="line-pill">' + escapeHtml(getLineName(lineId)) + "</span>";
+        return (
+          '<span class="line-pill" style="--line-color:' +
+          escapeAttr(getLineColor(lineId)) +
+          '">' +
+          escapeHtml(getLineName(lineId)) +
+          "</span>"
+        );
       })
       .join("");
 
@@ -827,7 +850,7 @@
         '<span class="feature-pill feature-pill--muted">设施信息以现场为准</span>';
     }
 
-    var routeText = buildRouteText(route);
+    var routeHtml = buildRouteHtml(route);
     var typeLabel = toilet.type === "inside" ? "站内" : "站外";
     var note = toilet.note || "以现场为准";
 
@@ -872,7 +895,7 @@
       '<div class="route-strip">' +
       '<span class="route-strip__label">路线</span>' +
       "<span>" +
-      escapeHtml(routeText) +
+      routeHtml +
       "</span>" +
       "</div>" +
       '<div class="toilet-card__foot">' +
@@ -885,22 +908,30 @@
     );
   }
 
-  function buildRouteText(route) {
+  function buildRouteHtml(route) {
     if (!route.segments.length) return "当前站";
 
     var parts = route.segments.map(function (segment) {
-      return getLineName(segment.lineId) + " " + segment.stops + " 站";
+      return (
+        '<span class="route-line" style="--line-color:' +
+        escapeAttr(getLineColor(segment.lineId)) +
+        '">' +
+        escapeHtml(getLineName(segment.lineId)) +
+        "</span> " +
+        segment.stops +
+        " 站"
+      );
     });
-    var text = parts.join(" → ");
+    var html = parts.join(' <span class="route-arrow">→</span> ');
     if (route.transfers > 0) {
-      text += " · 换乘 " + route.transfers + " 次";
+      html += " · 换乘 " + route.transfers + " 次";
     } else {
-      text += " · 直达";
+      html += " · 直达";
     }
     if (route.backtrack) {
-      text += " · 往回坐 +" + BACKTRACK_MINUTES + " 分钟";
+      html += " · 往回坐 +" + BACKTRACK_MINUTES + " 分钟";
     }
-    return text;
+    return html;
   }
 
   function renderEmpty(station, direction) {

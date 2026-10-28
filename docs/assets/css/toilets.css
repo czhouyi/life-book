@@ -159,6 +159,14 @@
   cursor: pointer;
 }
 
+/* 线路方向下拉框：边框和底色跟随所选线路的官方色 */
+#travel-service {
+  border-left: 5px solid var(--line-color, var(--forest));
+  background: #fffdf8;
+  background: color-mix(in srgb, var(--line-color, var(--forest)) 7%, #fffdf8);
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
 .field select:focus-visible {
   border-color: var(--forest);
   outline: 3px solid var(--focus);
@@ -219,6 +227,7 @@
   min-height: 39px;
   margin: 18px 0 0;
   padding: 10px 12px;
+  border-left: 4px solid var(--line-color, var(--forest));
   border-radius: 10px;
   background: rgba(36, 72, 58, 0.06);
   color: var(--forest);
@@ -326,9 +335,11 @@
 
 .line-pill {
   padding: 2px 6px;
-  border: 1px solid rgba(36, 72, 58, 0.2);
+  border: 1px solid color-mix(in srgb, var(--line-color, var(--forest)) 38%, transparent);
+  border-left: 3px solid var(--line-color, var(--forest));
   border-radius: 999px;
-  background: rgba(36, 72, 58, 0.055);
+  background: #fffdf8;
+  background: color-mix(in srgb, var(--line-color, var(--forest)) 12%, #fffdf8);
   color: var(--forest);
   font-size: 8.5px;
   font-weight: 650;
@@ -471,6 +482,17 @@
   font-size: 8.5px;
   font-weight: 700;
   letter-spacing: 0.12em;
+}
+
+.route-line {
+  border-bottom: 2px solid var(--line-color, var(--forest));
+  color: var(--forest-deep);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.route-arrow {
+  color: var(--ink-faint);
 }
 
 .toilet-card__foot {

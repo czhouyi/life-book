@@ -323,7 +323,7 @@ html {
 .book-display--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: clamp(18px, 2.4vw, 30px);
-  align-items: end;
+  align-items: start;
 }
 
 .book-display--two .book-link {
@@ -344,7 +344,10 @@ html {
 }
 
 .book-display--two .book-meta h3 {
-  font-size: 25px;
+  font-size: clamp(20px, 2vw, 25px);
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
 .book-display--two .book-description {
