@@ -256,6 +256,7 @@
           sign === 1 ? line.stations[line.stations.length - 1] : line.stations[0];
         options.push({
           value: lineId + "|" + sign,
+          lineId: lineId,
           label: getLineName(lineId) + " · 往" + destination + "方向"
         });
       });
@@ -263,9 +264,15 @@
 
     dom.serviceSelect.innerHTML = options
       .map(function (option) {
+        var textColor = getLineTextColor(option.lineId);
+        var tint = getLineTint(option.lineId);
         return (
           '<option value="' +
           escapeAttr(option.value) +
+          '" style="color:' +
+          escapeAttr(textColor) +
+          ';background-color:' +
+          escapeAttr(tint) +
           '">' +
           escapeHtml(option.label) +
           "</option>"
@@ -449,10 +456,64 @@
     return line && line.color ? line.color : "#24483a";
   }
 
+  function hexToRgb(hex) {
+    var value = String(hex || "").replace("#", "");
+    if (value.length === 3) {
+      value = value
+        .split("")
+        .map(function (part) {
+          return part + part;
+        })
+        .join("");
+    }
+    var number = parseInt(value, 16);
+    if (!Number.isFinite(number)) return { r: 36, g: 72, b: 58 };
+    return {
+      r: (number >> 16) & 255,
+      g: (number >> 8) & 255,
+      b: number & 255
+    };
+  }
+
+  /**
+   * 下拉选项直接使用官方线路色；对黄、浅绿等亮色做压暗处理，
+   * 保证在白底下拉框中仍然可读。
+   */
+  function getLineTextColor(lineId) {
+    var rgb = hexToRgb(getLineColor(lineId));
+    var luminance = 0.2126 * rgb.r + 0.7152 * rgb.g + 0.0722 * rgb.b;
+    if (luminance <= 145) {
+      return getLineColor(lineId);
+    }
+    return (
+      "rgb(" +
+      Math.round(rgb.r * 0.52) +
+      ", " +
+      Math.round(rgb.g * 0.52) +
+      ", " +
+      Math.round(rgb.b * 0.52) +
+      ")"
+    );
+  }
+
+  function getLineTint(lineId) {
+    var rgb = hexToRgb(getLineColor(lineId));
+    return (
+      "rgba(" +
+      rgb.r +
+      ", " +
+      rgb.g +
+      ", " +
+      rgb.b +
+      ", 0.08)"
+    );
+  }
+
   function updateServiceColor() {
     var color = getLineColor(state.currentLineId);
     if (dom.serviceSelect) {
       dom.serviceSelect.style.setProperty("--line-color", color);
+      dom.serviceSelect.style.color = getLineTextColor(state.currentLineId);
     }
     if (dom.routeStatus) {
       dom.routeStatus.style.setProperty("--line-color", color);
